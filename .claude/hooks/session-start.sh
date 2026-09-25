@@ -5,30 +5,43 @@
 # 置顶核心准则、权重最高的未解决记忆、最近 3 条 I（自我认知）、双方各最新一封信。
 #
 # 设计上只有一条铁律：绝不拖累会话启动。
-#   · 少任何一个环境变量  → 安静退出 0，会话照常开始，只是没带记忆
+#   · 没有 OMBRE_BRAIN_URL → 安静退出 0，会话照常开始，只是没带记忆
 #   · 大脑不可达/超时/401 → 同样安静退出 0，绝不让会话起不来
-#   · token 经 curl --config 从 stdin 传入，不进命令行参数，
-#     因此不会出现在 ps 的进程列表里（README 也要求 token 只走请求头，
-#     不进 URL、代理日志和浏览器历史）
 #   · 幂等、无交互、不写任何文件
+#
+# 鉴权有两条路，脚本两条都吃：
+#   A) 云端会话：token 存在「API credentials」里，由代理自动加
+#      Authorization: Bearer。token 不进容器，本脚本也看不到它——这是首选，
+#      因为环境变量那一栏明写着「会被使用该环境的人看到，别放密钥」。
+#   B) 本地/自托管：设了 OMBRE_HOOK_TOKEN，就自己加 x-ombre-hook-token 头。
+#      此时 token 经 curl --config 从 stdin 传入，不进命令行参数，
+#      因此不出现在 ps 的进程列表里。
 
 set -uo pipefail   # 故意不加 -e：任何一步出错都要走「安静放弃」而不是中断会话
 
 BRAIN_URL="${OMBRE_BRAIN_URL:-}"
 HOOK_TOKEN="${OMBRE_HOOK_TOKEN:-}"
 
-[ -n "$BRAIN_URL" ]  || exit 0
-[ -n "$HOOK_TOKEN" ] || exit 0
+# 只有 URL 是必需的；token 缺席是正常情况（走上面的 A 路）
+[ -n "$BRAIN_URL" ] || exit 0
 
 BRAIN_URL="${BRAIN_URL%/}"
 
-memories="$(
-  printf 'header = "x-ombre-hook-token: %s"\n' "$HOOK_TOKEN" \
-    | curl --silent --show-error --fail \
-           --connect-timeout 5 --max-time 25 \
-           --config - \
-           "$BRAIN_URL/breath-hook" 2>/dev/null
-)" || exit 0
+if [ -n "$HOOK_TOKEN" ]; then
+  memories="$(
+    printf 'header = "x-ombre-hook-token: %s"\n' "$HOOK_TOKEN" \
+      | curl --silent --show-error --fail \
+             --connect-timeout 5 --max-time 25 \
+             --config - \
+             "$BRAIN_URL/breath-hook" 2>/dev/null
+  )" || exit 0
+else
+  memories="$(
+    curl --silent --show-error --fail \
+         --connect-timeout 5 --max-time 25 \
+         "$BRAIN_URL/breath-hook" 2>/dev/null
+  )" || exit 0
+fi
 
 # 只有空白 = 没记忆可注入，别往上下文里塞空壳
 [ -n "${memories//[[:space:]]/}" ] || exit 0

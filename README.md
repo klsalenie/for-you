@@ -14,25 +14,41 @@
 
 没有这个钩子时，小克开场什么都不知道，要靠自己调 `pulse` / `breath` 现查。
 
-## 需要两个环境变量
+## 怎么配
 
-在云端环境的设置里配好这两个，钩子才会生效：
+鉴权有两条路，脚本两条都吃。**云端会话用 A，本地自托管用 B。**
 
-| 变量 | 值 | 说明 |
-|---|---|---|
-| `OMBRE_BRAIN_URL` | 大脑的公网地址，如 `https://xxx.zeabur.app` | 末尾带不带 `/` 都行，脚本会处理 |
-| `OMBRE_HOOK_TOKEN` | 大脑的 hook token | 对应大脑 `config.yaml` 的 `hooks.token` 或它的 `OMBRE_HOOK_TOKEN` |
+### A) 云端（推荐）
 
-两个值都**不进仓库**。token 只经请求头 `x-ombre-hook-token` 传输，且通过
-`curl --config` 从 stdin 传入，不会出现在命令行参数和 `ps` 的进程列表里。
+| 填在哪 | 填什么 |
+|---|---|
+| **Environment variables** | `OMBRE_BRAIN_URL=https://你的域名.zeabur.app` |
+| **API credentials** | Credential type 选 `Bearer`；Allowed websites 填大脑域名（不带 `https://`、不带路径）；Custom headers 保持 `Authorization` / `Bearer` / Value 填 hook token |
+
+token 由代理自动加成 `Authorization: Bearer ...`，**不进容器，脚本也看不到它**。
+
+> ⚠️ **不要把 token 放进 Environment variables。** 那一栏明写着「会被使用该环境的人看到，
+> 别放密钥」。这个 token 能读大脑里的全部内容——所有记忆和信件。
+
+### B) 本地 / 自托管
+
+两个都当普通环境变量给就行：
+
+| 变量 | 值 |
+|---|---|
+| `OMBRE_BRAIN_URL` | 大脑地址，末尾带不带 `/` 都行 |
+| `OMBRE_HOOK_TOKEN` | hook token，对应大脑 `config.yaml` 的 `hooks.token` |
+
+此时脚本自己加 `x-ombre-hook-token` 头，且用 `curl --config` 从 stdin 传入，
+不出现在命令行参数和 `ps` 的进程列表里。
 
 ## 失败时会怎样
 
 钩子的铁律是**绝不拖累会话启动**。以下任一情况都安静退出 0，会话照常开始，
 只是这次没带记忆：
 
-- 两个环境变量缺任何一个
+- 没有 `OMBRE_BRAIN_URL`
 - 大脑不可达、超时（连接 5s / 总计 25s 上限）
-- token 不对（401）或返回空
+- 没配 token、token 不对（401），或返回空
 
 所以就算大脑挂了、Zeabur 在重新部署，会话也起得来。

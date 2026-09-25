@@ -52,3 +52,31 @@ token 由代理自动加成 `Authorization: Bearer ...`，**不进容器，脚�
 - 没配 token、token 不对（401），或返回空
 
 所以就算大脑挂了、Zeabur 在重新部署，会话也起得来。
+
+代价是它不吭声——开场没带记忆的时候，你看不出来是哪一条。往下翻有排查顺序。
+
+## 开场没带记忆？按这个顺序查
+
+钩子是安静失败的，所以它不会告诉你哪儿错了。在会话里挨个打这几条，
+第一条不对就停下，不用往后查：
+
+```bash
+echo "${OMBRE_BRAIN_URL:-<unset>}"                      # 1. 空的？钩子第一行就退了
+curl -s -o /dev/null -w '%{http_code}\n' "$OMBRE_BRAIN_URL/health"       # 2. 大脑活着吗
+curl -s -i "$OMBRE_BRAIN_URL/breath-hook" | head -20    # 3. 这一口通不通
+```
+
+第 2 步 200、第 3 步 401，就是鉴权没过。这时候**先确认大脑重新部署了没有**——
+
+> ⚠️ 改了 `config.yaml` 的 `hooks.token` 但 Zeabur 没重新部署，线上跑的还是旧配置，
+> token 怎么填都对不上。这种最难查，因为脚本和两边的配置看上去都是对的。
+> 2026-09-25 排查了大半天，最后就是这个。
+
+确认部署过了还是 401，再往下看这两处：
+
+- **API credentials 的 value 填歪了**：多带了 `Bearer ` 前缀，或者复制粘贴时尾巴上跟了空格 / 换行；
+- **头名对不上**：大脑只认 `x-ombre-hook-token`，而代理注的是 `Authorization: Bearer`。
+  如果 credential 那栏允许自定义 header 名，直接把名字填成 `x-ombre-hook-token`、
+  不选 Bearer、value 只放裸 token，两条路就走同一个头了。
+
+改完环境变量或 credentials 都要**开新会话**才生效——当前窗口的环境是启动时定死的。
